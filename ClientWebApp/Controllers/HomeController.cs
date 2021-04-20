@@ -1,4 +1,5 @@
-﻿using ClientWebApp.Extensions;
+﻿using ClientWebApp.ClientTypes;
+using ClientWebApp.Extensions;
 using ClientWebApp.Models;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
@@ -21,14 +22,20 @@ namespace ClientWebApp.Controllers
     public class HomeController : Controller
     {
         private readonly ILogger<HomeController> _logger;
+        private readonly IHttpClientFactory httpClientFactory;
+        private readonly EventClient2 eventClient;
         private HttpClient httpClient;
 
-        public HomeController(ILogger<HomeController> logger)
+        public HomeController(ILogger<HomeController> logger, IHttpClientFactory httpClientFactory, EventClient2 eventClient)
         {
             _logger = logger;
+
+            //Version 1
+            this.httpClientFactory = httpClientFactory;
+            this.eventClient = eventClient;
             httpClient = new HttpClient();
             httpClient.BaseAddress = new Uri("https://localhost:5001/");
-            httpClient.Timeout = new TimeSpan(0, 0, 10);
+            httpClient.Timeout = new TimeSpan(0, 0, 50);
 
             httpClient.DefaultRequestHeaders.Clear();
             httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -203,7 +210,7 @@ namespace ClientWebApp.Controllers
 
         //Get with Streams
         public async Task<IActionResult> GetWithStreams()
-       // public async Task<IActionResult> Index()
+        // public async Task<IActionResult> Index()
         {
             var request = new HttpRequestMessage(HttpMethod.Get, "api/events");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -226,10 +233,10 @@ namespace ClientWebApp.Controllers
             }
 
             return View();
-        } 
-        
-       // public async Task<IActionResult> GetWithStreamsAndCompletionMode()
-        public async Task<IActionResult> Index()
+        }
+
+        public async Task<IActionResult> GetWithStreamsAndCompletionMode()
+        // public async Task<IActionResult> Index()
         {
             var request = new HttpRequestMessage(HttpMethod.Get, "api/events");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -246,7 +253,137 @@ namespace ClientWebApp.Controllers
             return View();
         }
 
+         public async Task<IActionResult> PostWithStreamAndResponseWithStream()
+       // public async Task<IActionResult> Index()
+        {
 
+            var eventDto = new EventDayDto()
+            {
+                Name = "Kalle1",
+                EventDate = new DateTime(2020, 12, 18),
+                LocationAddress = "Storgatan 12",
+                LocationCityTown = "Stockholm",
+                LocationStateProvince = "Stockholm",
+                LocationPostalCode = "12345",
+                LocationCountry = "Sweden",
+                Length = 1,
+            };
+
+            var memoryStream = new MemoryStream();
+
+            //using(var streamWriter = new StreamWriter(memoryStream, new UTF8Encoding(), 1024, true))
+            //{
+            //    using(var jsonTextWriter = new JsonTextWriter(streamWriter))
+            //    {
+            //        var jsonSerializer = new JsonSerializer();
+            //        jsonSerializer.Serialize(jsonTextWriter, eventDto);
+            //        await jsonTextWriter.FlushAsync();
+            //    }
+            //}
+
+            await memoryStream.WriteAndSerializeToJsonAsync(eventDto);
+            memoryStream.Seek(0, SeekOrigin.Begin);
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "api/events"))
+            {
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                using (var streamContent = new StreamContent(memoryStream))
+                {
+                    request.Content = streamContent;
+                    request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+                    using (var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        response.EnsureSuccessStatusCode();
+                        var stream = await response.Content.ReadAsStreamAsync();
+                        var cretedEvent = stream.ReadAndDeserializeFromJson<EventDayDto>();
+                    }
+                }
+            }
+
+            return View();
+        }
+
+        //Version 1
+        public async Task<IActionResult> GetWithHttpClientFactory()
+       // public async Task<IActionResult> Index()
+        {
+
+            var client = httpClientFactory.CreateClient();
+            
+            var request = new HttpRequestMessage(HttpMethod.Get, "https://localhost:5001/api/events");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            using (var response = await client.SendAsync(request))
+            {
+
+                response.EnsureSuccessStatusCode();
+
+                var stream = await response.Content.ReadAsStreamAsync();
+
+                using (var streamReader = new StreamReader(stream))
+                {
+                    using (var jsonTextReader = new JsonTextReader(streamReader))
+                    {
+                        var serializer = new JsonSerializer();
+                        var events = serializer.Deserialize<IEnumerable<EventDayDto>>(jsonTextReader);
+                    }
+                }
+            }
+
+            return View();
+        }  
+        
+        
+        //Version 2
+        public async Task<IActionResult> GetWithNamedHttpClientFactory()
+       // public async Task<IActionResult> Index()
+        {
+            var client = httpClientFactory.CreateClient("EventClient");
+
+
+            var request = new HttpRequestMessage(HttpMethod.Get, "api/events");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+            {
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                {
+                      response.EnsureSuccessStatusCode();
+                      var events = stream.ReadAndDeserializeFromJson<IEnumerable<EventDayDto>>();
+                }
+            }
+            return View();
+        } 
+        
+        //Version 3
+       // public async Task<IActionResult> GetWithTypedHttpClientFactory()
+       //// public async Task<IActionResult> Index()
+       // {
+       //     var request = new HttpRequestMessage(HttpMethod.Get, "api/events");
+       //     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+       //     using (var response = await eventClient.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+       //     {
+       //         using (var stream = await response.Content.ReadAsStreamAsync())
+       //         {
+       //               response.EnsureSuccessStatusCode();
+       //               var events = stream.ReadAndDeserializeFromJson<IEnumerable<EventDayDto>>();
+       //         }
+       //     }
+       //     return View();
+       // } 
+        
+       
+        public async Task<IActionResult> Index()
+        {
+            var events = await eventClient.GetEvent("Kalle1");
+            var events1 =await eventClient.GetAllEvents();
+            var events2 =await eventClient.Get<IEnumerable<EventDayDto>>("api/events");
+            var events3 =await eventClient.Get<EventDayDto>("api/events/kalle1");
+
+            return View();
+        }
 
 
 

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace ClientWebApp.Extensions
@@ -27,6 +28,26 @@ namespace ClientWebApp.Extensions
                     return serializer.Deserialize<T>(jsonTextReader);
                 }
             }
+        }
+
+        public static async Task WriteAndSerializeToJsonAsync<T>(this Stream stream, T objectToWrite) 
+        {
+            if (stream is null)
+                throw new ArgumentNullException(nameof(stream));
+
+            if (!stream.CanWrite)
+                throw new NotSupportedException(nameof(stream));
+
+            using (var streamWriter = new StreamWriter(stream, new UTF8Encoding(), 1024, true))
+            {
+                using (var jsonTextWriter = new JsonTextWriter(streamWriter))
+                {
+                    var jsonSerializer = new JsonSerializer();
+                    jsonSerializer.Serialize(jsonTextWriter, objectToWrite);
+                    await jsonTextWriter.FlushAsync();
+                }
+            }
+
         }
     }
 }
